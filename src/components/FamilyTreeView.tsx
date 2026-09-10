@@ -8,10 +8,17 @@ interface Props {
   people: Person[];
   selectedId: string | null;
   onSelect: (id: string) => void;
+  focusedPersonName?: string | null;
+  focusedCount?: number;
+  onClearFocus?: () => void;
 }
 
 const MIN_SCALE = 0.3;
 const MAX_SCALE = 2.2;
+
+// Distinct, colorblind-friendlier hues so a family's connector lines stay
+// identifiable from a neighboring family's even where they run close or cross.
+const FAMILY_COLORS = ['#4f6df5', '#d1487b', '#0f9d6e', '#c9701f', '#8a5cf5', '#0e9ab0', '#b8862a', '#c2453d'];
 
 function personLabel(p: PositionedPerson): string {
   const dates = [p.birthYear, p.deathYear].filter(Boolean);
@@ -20,7 +27,7 @@ function personLabel(p: PositionedPerson): string {
   return `né(e) ${p.birthYear}`;
 }
 
-export default function FamilyTreeView({ people, selectedId, onSelect }: Props) {
+export default function FamilyTreeView({ people, selectedId, onSelect, focusedPersonName, focusedCount, onClearFocus }: Props) {
   const layout = computeLayout(people);
   const containerRef = useRef<HTMLDivElement>(null);
   const [transform, setTransform] = useState({ x: 40, y: 40, scale: 1 });
@@ -85,6 +92,15 @@ export default function FamilyTreeView({ people, selectedId, onSelect }: Props) 
 
   return (
     <div className="tree-viewport">
+      {focusedPersonName && (
+        <div className="focus-banner">
+          <span>
+            Recentré sur <strong>{focusedPersonName}</strong>
+            {typeof focusedCount === 'number' ? ` · ${focusedCount} personne${focusedCount > 1 ? 's' : ''}` : ''}
+          </span>
+          <button onClick={onClearFocus}>Afficher tout l'arbre</button>
+        </div>
+      )}
       <div className="tree-controls">
         <button onClick={() => zoomBy(1.2)} title="Zoomer">+</button>
         <button onClick={() => zoomBy(1 / 1.2)} title="Dézoomer">−</button>
@@ -131,9 +147,10 @@ export default function FamilyTreeView({ people, selectedId, onSelect }: Props) 
                 const childXs = children.map((c) => c.x + NODE_WIDTH / 2);
                 const busLeft = Math.min(parentMidX, ...childXs);
                 const busRight = Math.max(parentMidX, ...childXs);
+                const color = FAMILY_COLORS[family.colorIndex % FAMILY_COLORS.length];
 
                 return (
-                  <g key={family.key} className="family-group">
+                  <g key={family.key} className="family-group" style={{ stroke: color }}>
                     <line className="link-line" x1={parentMidX} y1={parentY} x2={parentMidX} y2={busY} />
                     <line className="link-line" x1={busLeft} y1={busY} x2={busRight} y2={busY} />
                     {children.map((c) => (

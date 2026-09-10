@@ -3,6 +3,7 @@ import Sidebar from './components/Sidebar';
 import PersonForm from './components/PersonForm';
 import FamilyTreeView from './components/FamilyTreeView';
 import { useFamilyData } from './hooks/useFamilyData';
+import { computeFocusSubset } from './utils/focusSubset';
 import type { Person } from './types';
 import './App.css';
 
@@ -12,11 +13,20 @@ function App() {
   const { people, addPerson, updatePerson, deletePerson, resetToSample, clearAll, importPeople } = useFamilyData();
   const [selectedId, setSelectedId] = useState<string | null>(null);
   const [panel, setPanel] = useState<PanelMode>({ kind: 'closed' });
+  const [focusId, setFocusId] = useState<string | null>(null);
 
   const editingPerson: Person | null = useMemo(() => {
     if (panel.kind !== 'edit') return null;
     return people.find((p) => p.id === panel.id) ?? null;
   }, [panel, people]);
+
+  const focusedPerson = useMemo(() => (focusId ? (people.find((p) => p.id === focusId) ?? null) : null), [focusId, people]);
+
+  const visiblePeople = useMemo(() => {
+    if (!focusedPerson) return people;
+    const idsSet = computeFocusSubset(people, focusedPerson.id);
+    return people.filter((p) => idsSet.has(p.id));
+  }, [people, focusedPerson]);
 
   const handleSelect = (id: string) => {
     setSelectedId(id);
@@ -36,6 +46,7 @@ function App() {
   const handleDelete = (id: string) => {
     deletePerson(id);
     if (selectedId === id) setSelectedId(null);
+    if (focusId === id) setFocusId(null);
     setPanel({ kind: 'closed' });
   };
 
@@ -71,7 +82,9 @@ function App() {
       <Sidebar
         people={people}
         selectedId={selectedId}
+        focusId={focusId}
         onSelect={handleSelect}
+        onFocus={setFocusId}
         onAddNew={() => setPanel({ kind: 'add' })}
         onResetSample={resetToSample}
         onClearAll={clearAll}
@@ -80,7 +93,14 @@ function App() {
       />
 
       <main className="tree-area">
-        <FamilyTreeView people={people} selectedId={selectedId} onSelect={handleSelect} />
+        <FamilyTreeView
+          people={visiblePeople}
+          selectedId={selectedId}
+          onSelect={handleSelect}
+          focusedPersonName={focusedPerson ? `${focusedPerson.firstName} ${focusedPerson.lastName}` : null}
+          focusedCount={visiblePeople.length}
+          onClearFocus={() => setFocusId(null)}
+        />
       </main>
 
       {panel.kind !== 'closed' && (
