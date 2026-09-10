@@ -170,13 +170,31 @@ export function computeLayout(people: Person[]): LayoutResult {
     const levelPeople = people.filter((p) => generations.get(p.id) === g);
     const levelIds = new Set(levelPeople.map((p) => p.id));
 
+    // A person's position from their own parents' placement, when known — this is the
+    // reliable signal for where their whole partnership cluster belongs in the row.
+    const lineageKey = (id: string): number | null => {
+      const validParents = (byId.get(id)?.parentIds ?? []).filter((pid) => previousLevelSlot.has(pid));
+      if (validParents.length === 0) return null;
+      return validParents.reduce((sum, pid) => sum + previousLevelSlot.get(pid)!, 0) / validParents.length;
+    };
+
     const sortKey = (id: string): number => {
       if (g === 0) return people.findIndex((p) => p.id === id);
-      const validParents = (byId.get(id)?.parentIds ?? []).filter((pid) => previousLevelSlot.has(pid));
-      if (validParents.length > 0) {
-        return validParents.reduce((sum, pid) => sum + previousLevelSlot.get(pid)!, 0) / validParents.length;
-      }
+      const known = lineageKey(id);
+      if (known !== null) return known;
       return 1000 + people.findIndex((p) => p.id === id); // no known parent placed: push to the end, stable by original order
+    };
+
+    // A cluster's row position should follow whichever members actually descend from
+    // the row above (their lineageKey), not a plain average with partners who married
+    // in from outside the tree — those carry a large "push to the end" sentinel that
+    // would otherwise drag the whole cluster to the wrong spot in the row.
+    const clusterPositionKey = (members: string[]): number => {
+      const lineageKeys = members.map(lineageKey).filter((k): k is number => k !== null);
+      if (lineageKeys.length > 0) {
+        return lineageKeys.reduce((sum, k) => sum + k, 0) / lineageKeys.length;
+      }
+      return members.reduce((sum, id) => sum + sortKey(id), 0) / members.length;
     };
 
     // Group same-generation people into connected clusters of partners/co-parents,
@@ -204,10 +222,7 @@ export function computeLayout(people: Person[]): LayoutResult {
 
     const orderedClusters = clusters
       .map((members) => (members.length === 1 ? members : buildClusterOrder(members, linkedIds, sortKey)))
-      .map((members) => ({
-        members,
-        avgKey: members.reduce((sum, id) => sum + sortKey(id), 0) / members.length,
-      }))
+      .map((members) => ({ members, avgKey: clusterPositionKey(members) }))
       .sort((a, b) => a.avgKey - b.avgKey);
 
     const ordered: Person[] = orderedClusters.flatMap(({ members }) => members.map((id) => byId.get(id)!));
