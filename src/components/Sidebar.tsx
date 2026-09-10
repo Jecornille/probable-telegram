@@ -5,7 +5,9 @@ import './Sidebar.css';
 interface Props {
   people: Person[];
   selectedId: string | null;
+  focusId: string | null;
   onSelect: (id: string) => void;
+  onFocus: (id: string | null) => void;
   onAddNew: () => void;
   onResetSample: () => void;
   onClearAll: () => void;
@@ -13,7 +15,16 @@ interface Props {
   onImport: (file: File) => void;
 }
 
-export default function Sidebar({ people, selectedId, onSelect, onAddNew, onResetSample, onClearAll, onExport, onImport }: Props) {
+function TargetIcon() {
+  return (
+    <svg width="14" height="14" viewBox="0 0 16 16" fill="none" aria-hidden="true">
+      <circle cx="8" cy="8" r="6" stroke="currentColor" strokeWidth="1.4" />
+      <circle cx="8" cy="8" r="2" fill="currentColor" />
+    </svg>
+  );
+}
+
+export default function Sidebar({ people, selectedId, focusId, onSelect, onFocus, onAddNew, onResetSample, onClearAll, onExport, onImport }: Props) {
   const [query, setQuery] = useState('');
 
   const filtered = useMemo(() => {
@@ -35,7 +46,7 @@ export default function Sidebar({ people, selectedId, onSelect, onAddNew, onRese
 
       <ul className="person-list">
         {filtered.map((p) => (
-          <li key={p.id}>
+          <li key={p.id} className="person-row">
             <button className={`person-item${p.id === selectedId ? ' selected' : ''}`} onClick={() => onSelect(p.id)}>
               <span className={`dot sex-${p.sex}`} />
               <span>
@@ -47,6 +58,13 @@ export default function Sidebar({ people, selectedId, onSelect, onAddNew, onRese
                   {p.deathYear ? ` – ${p.deathYear}` : ''}
                 </span>
               )}
+            </button>
+            <button
+              className={`focus-toggle${p.id === focusId ? ' active' : ''}`}
+              onClick={() => onFocus(p.id === focusId ? null : p.id)}
+              title={p.id === focusId ? "Afficher tout l'arbre" : `Centrer l'arbre sur ${p.firstName}`}
+            >
+              <TargetIcon />
             </button>
           </li>
         ))}

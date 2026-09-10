@@ -9,6 +9,9 @@ export interface FamilyGroup {
   key: string;
   parentIds: string[];
   childIds: string[];
+  /** Index used to pick a connector color, so distinct family units stay visually
+   *  distinguishable from each other where their lines run close together or cross. */
+  colorIndex: number;
 }
 
 export interface LayoutResult {
@@ -315,7 +318,7 @@ export function computeLayout(people: Person[]): LayoutResult {
     }
   }
 
-  const familyMap = new Map<string, FamilyGroup>();
+  const familyMap = new Map<string, Omit<FamilyGroup, 'colorIndex'>>();
   for (const p of positioned) {
     const validParents = p.parentIds.filter((pid) => positionedById.has(pid));
     if (validParents.length === 0) continue;
@@ -326,6 +329,11 @@ export function computeLayout(people: Person[]): LayoutResult {
     familyMap.get(key)!.childIds.push(p.id);
   }
 
+  // Assign colors left-to-right so the ordering is stable and deterministic.
+  const families: FamilyGroup[] = [...familyMap.values()]
+    .sort((a, b) => Math.min(...a.parentIds.map((id) => positionedById.get(id)!.x)) - Math.min(...b.parentIds.map((id) => positionedById.get(id)!.x)))
+    .map((family, colorIndex) => ({ ...family, colorIndex }));
+
   const width = positioned.length === 0 ? 0 : Math.max(...positioned.map((p) => p.x)) + NODE_WIDTH;
   const height = positioned.length === 0 ? 0 : Math.max(...positioned.map((p) => p.y)) + NODE_HEIGHT;
 
@@ -333,7 +341,7 @@ export function computeLayout(people: Person[]): LayoutResult {
     people: positioned,
     byId: positionedById,
     partnerLinks,
-    families: [...familyMap.values()],
+    families,
     width,
     height,
   };

@@ -53,8 +53,15 @@ button.danger {
   gap: 4px;
 }
 
+.person-row {
+  display: flex;
+  align-items: center;
+  gap: 4px;
+}
+
 .person-item {
-  width: 100%;
+  flex: 1;
+  min-width: 0;
   display: flex;
   align-items: center;
   gap: 8px;
@@ -64,6 +71,29 @@ button.danger {
   background: transparent;
   color: var(--text);
   text-align: left;
+}
+
+.focus-toggle {
+  flex-shrink: 0;
+  width: 28px;
+  height: 28px;
+  display: flex;
+  align-items: center;
+  justify-content: center;
+  border: 1px solid transparent;
+  border-radius: 6px;
+  background: transparent;
+  color: var(--muted);
+}
+
+.focus-toggle:hover {
+  color: var(--accent);
+  background: var(--bg);
+}
+
+.focus-toggle.active {
+  color: var(--accent-contrast);
+  background: var(--accent);
 }
 
 .person-item:hover {
@@ -77,8 +107,15 @@ button.danger {
 
 .person-item .years {
   margin-left: auto;
+  flex-shrink: 0;
   font-size: 0.75rem;
   color: var(--muted);
+}
+
+.person-item span:nth-child(2) {
+  overflow: hidden;
+  text-overflow: ellipsis;
+  white-space: nowrap;
 }
 
 .dot {
