@@ -20,6 +20,19 @@ export interface LayoutResult {
   height: number;
 }
 
+/** Pairs of people who co-parent at least one child together, whether or not they're still partners. */
+function getCoParentPairs(people: Person[]): [string, string][] {
+  const byId = new Map(people.map((p) => [p.id, p]));
+  const pairs: [string, string][] = [];
+  for (const p of people) {
+    const validParents = p.parentIds.filter((pid) => byId.has(pid) && pid !== p.id);
+    if (validParents.length === 2) {
+      pairs.push([validParents[0], validParents[1]]);
+    }
+  }
+  return pairs;
+}
+
 function computeGenerations(people: Person[]): Map<string, number> {
   const byId = new Map(people.map((p) => [p.id, p]));
   const gen = new Map<string, number>();
@@ -39,7 +52,21 @@ function computeGenerations(people: Person[]): Map<string, number> {
 
   for (const p of people) resolve(p.id);
 
-  // Pull partners onto the same generation as their spouse (marrying into a family).
+  function equalize(idA: string, idB: string): boolean {
+    const a = gen.get(idA) ?? 0;
+    const b = gen.get(idB) ?? 0;
+    if (a !== b) {
+      const max = Math.max(a, b);
+      gen.set(idA, max);
+      gen.set(idB, max);
+      return true;
+    }
+    return false;
+  }
+
+  // Pull partners, and co-parents who share a child (even if no longer partners),
+  // onto the same generation — otherwise the parent-child connectors can't line up.
+  const coParentPairs = getCoParentPairs(people);
   let changed = true;
   let guard = 0;
   while (changed && guard < people.length + 5) {
@@ -48,24 +75,41 @@ function computeGenerations(people: Person[]): Map<string, number> {
     for (const p of people) {
       for (const partnerId of p.partnerIds) {
         if (!byId.has(partnerId)) continue;
-        const a = gen.get(p.id) ?? 0;
-        const b = gen.get(partnerId) ?? 0;
-        if (a !== b) {
-          const max = Math.max(a, b);
-          gen.set(p.id, max);
-          gen.set(partnerId, max);
-          changed = true;
-        }
+        if (equalize(p.id, partnerId)) changed = true;
       }
+    }
+    for (const [a, b] of coParentPairs) {
+      if (equalize(a, b)) changed = true;
     }
   }
 
   return gen;
 }
 
+/** Every person paired with everyone they should be placed next to: partners and co-parents alike. */
+function getLinkedIds(people: Person[]): Map<string, Set<string>> {
+  const linked = new Map<string, Set<string>>();
+  const link = (a: string, b: string) => {
+    if (!linked.has(a)) linked.set(a, new Set());
+    linked.get(a)!.add(b);
+  };
+  for (const p of people) {
+    for (const partnerId of p.partnerIds) {
+      link(p.id, partnerId);
+      link(partnerId, p.id);
+    }
+  }
+  for (const [a, b] of getCoParentPairs(people)) {
+    link(a, b);
+    link(b, a);
+  }
+  return linked;
+}
+
 export function computeLayout(people: Person[]): LayoutResult {
   const byId = new Map(people.map((p) => [p.id, p]));
   const generations = computeGenerations(people);
+  const linkedIds = getLinkedIds(people);
   const maxGen = people.length === 0 ? 0 : Math.max(...people.map((p) => generations.get(p.id) ?? 0));
 
   const slots = new Map<string, number>();
@@ -92,12 +136,12 @@ export function computeLayout(people: Person[]): LayoutResult {
       if (placed.has(p.id)) continue;
       ordered.push(p);
       placed.add(p.id);
-      for (const partnerId of p.partnerIds) {
-        if (placed.has(partnerId)) continue;
-        const partner = byId.get(partnerId);
-        if (partner && generations.get(partner.id) === g) {
-          ordered.push(partner);
-          placed.add(partner.id);
+      for (const linkedId of linkedIds.get(p.id) ?? []) {
+        if (placed.has(linkedId)) continue;
+        const linkedPerson = byId.get(linkedId);
+        if (linkedPerson && generations.get(linkedPerson.id) === g) {
+          ordered.push(linkedPerson);
+          placed.add(linkedPerson.id);
         }
       }
     }
