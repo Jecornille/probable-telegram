@@ -106,6 +106,57 @@ function getLinkedIds(people: Person[]): Map<string, Set<string>> {
   return linked;
 }
 
+/**
+ * Orders a cluster of mutually linked people (partners/co-parents) so that the
+ * person with the most connections — e.g. someone with children by several
+ * partners — sits in the middle, flanked by those partners, instead of being
+ * placed next to only one of them while the rest scatter across the row.
+ */
+function buildClusterOrder(ids: string[], linked: Map<string, Set<string>>, referenceKey: (id: string) => number): string[] {
+  const idSet = new Set(ids);
+  const neighborsWithin = (id: string): string[] => [...(linked.get(id) ?? [])].filter((n) => idSet.has(n));
+
+  let hub = ids[0];
+  let hubDegree = -1;
+  for (const id of [...ids].sort((a, b) => referenceKey(a) - referenceKey(b))) {
+    const degree = neighborsWithin(id).length;
+    if (degree > hubDegree) {
+      hubDegree = degree;
+      hub = id;
+    }
+  }
+
+  const placed = new Set([hub]);
+  const left: string[] = [];
+  const right: string[] = [];
+  const queue: { id: string; side: 'L' | 'R' }[] = [];
+
+  neighborsWithin(hub)
+    .sort((a, b) => referenceKey(a) - referenceKey(b))
+    .forEach((neighborId, i) => {
+      if (placed.has(neighborId)) return;
+      placed.add(neighborId);
+      queue.push({ id: neighborId, side: i % 2 === 0 ? 'L' : 'R' });
+    });
+
+  while (queue.length > 0) {
+    const { id, side } = queue.shift()!;
+    if (side === 'L') left.unshift(id);
+    else right.push(id);
+
+    neighborsWithin(id)
+      .filter((n) => !placed.has(n))
+      .sort((a, b) => referenceKey(a) - referenceKey(b))
+      .forEach((n) => {
+        placed.add(n);
+        queue.push({ id: n, side });
+      });
+  }
+
+  const leftover = ids.filter((id) => !placed.has(id));
+  return [...left, hub, ...right, ...leftover];
+}
+
 export function computeLayout(people: Person[]): LayoutResult {
   const byId = new Map(people.map((p) => [p.id, p]));
   const generations = computeGenerations(people);
@@ -117,34 +168,49 @@ export function computeLayout(people: Person[]): LayoutResult {
 
   for (let g = 0; g <= maxGen; g++) {
     const levelPeople = people.filter((p) => generations.get(p.id) === g);
-    const placed = new Set<string>();
-    const ordered: Person[] = [];
+    const levelIds = new Set(levelPeople.map((p) => p.id));
 
-    const sortKey = (p: Person): number => {
-      if (g === 0) return people.indexOf(p);
-      const validParents = p.parentIds.filter((pid) => previousLevelSlot.has(pid));
+    const sortKey = (id: string): number => {
+      if (g === 0) return people.findIndex((p) => p.id === id);
+      const validParents = (byId.get(id)?.parentIds ?? []).filter((pid) => previousLevelSlot.has(pid));
       if (validParents.length > 0) {
-        const avg = validParents.reduce((sum, pid) => sum + previousLevelSlot.get(pid)!, 0) / validParents.length;
-        return avg;
+        return validParents.reduce((sum, pid) => sum + previousLevelSlot.get(pid)!, 0) / validParents.length;
       }
-      return 1000 + people.indexOf(p); // no known parent placed: push to the end, stable by original order
+      return 1000 + people.findIndex((p) => p.id === id); // no known parent placed: push to the end, stable by original order
     };
 
-    const sorted = [...levelPeople].sort((a, b) => sortKey(a) - sortKey(b));
-
-    for (const p of sorted) {
-      if (placed.has(p.id)) continue;
-      ordered.push(p);
-      placed.add(p.id);
-      for (const linkedId of linkedIds.get(p.id) ?? []) {
-        if (placed.has(linkedId)) continue;
-        const linkedPerson = byId.get(linkedId);
-        if (linkedPerson && generations.get(linkedPerson.id) === g) {
-          ordered.push(linkedPerson);
-          placed.add(linkedPerson.id);
+    // Group same-generation people into connected clusters of partners/co-parents,
+    // so someone with children by several partners lands with all of them instead
+    // of being scattered across the row with unrelated families in between.
+    const visited = new Set<string>();
+    const clusters: string[][] = [];
+    for (const p of levelPeople) {
+      if (visited.has(p.id)) continue;
+      const stack = [p.id];
+      visited.add(p.id);
+      const members: string[] = [];
+      while (stack.length > 0) {
+        const current = stack.pop()!;
+        members.push(current);
+        for (const neighborId of linkedIds.get(current) ?? []) {
+          if (levelIds.has(neighborId) && !visited.has(neighborId)) {
+            visited.add(neighborId);
+            stack.push(neighborId);
+          }
         }
       }
+      clusters.push(members);
     }
+
+    const orderedClusters = clusters
+      .map((members) => (members.length === 1 ? members : buildClusterOrder(members, linkedIds, sortKey)))
+      .map((members) => ({
+        members,
+        avgKey: members.reduce((sum, id) => sum + sortKey(id), 0) / members.length,
+      }))
+      .sort((a, b) => a.avgKey - b.avgKey);
+
+    const ordered: Person[] = orderedClusters.flatMap(({ members }) => members.map((id) => byId.get(id)!));
 
     const currentLevelSlot = new Map<string, number>();
     ordered.forEach((p, i) => {
