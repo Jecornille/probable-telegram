@@ -144,6 +144,13 @@
   user-select: none;
 }
 
+.node-birth-name {
+  fill: var(--muted);
+  font-size: 11px;
+  font-style: italic;
+  user-select: none;
+}
+
 .node-dates {
   fill: var(--muted);
   font-size: 12px;

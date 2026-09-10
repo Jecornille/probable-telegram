@@ -170,13 +170,18 @@ export default function FamilyTreeView({ people, selectedId, onSelect, focusedPe
                   onClick={() => onSelect(p.id)}
                 >
                   <rect width={NODE_WIDTH} height={NODE_HEIGHT} rx={10} className="node-box" />
-                  <text x={NODE_WIDTH / 2} y={30} className="node-name" textAnchor="middle">
+                  <text x={NODE_WIDTH / 2} y={26} className="node-name" textAnchor="middle">
                     {p.firstName}
                   </text>
-                  <text x={NODE_WIDTH / 2} y={50} className="node-name" textAnchor="middle">
+                  <text x={NODE_WIDTH / 2} y={46} className="node-name" textAnchor="middle">
                     {p.lastName}
                   </text>
-                  <text x={NODE_WIDTH / 2} y={70} className="node-dates" textAnchor="middle">
+                  {p.birthName && (
+                    <text x={NODE_WIDTH / 2} y={62} className="node-birth-name" textAnchor="middle">
+                      né(e) {p.birthName}
+                    </text>
+                  )}
+                  <text x={NODE_WIDTH / 2} y={84} className="node-dates" textAnchor="middle">
                     {personLabel(p)}
                   </text>
                 </g>

@@ -4,6 +4,8 @@ export interface Person {
   id: string;
   firstName: string;
   lastName: string;
+  /** Name at birth, when different from the current last name (e.g. before marriage). */
+  birthName?: string;
   sex: Sex;
   birthYear?: number;
   deathYear?: number;

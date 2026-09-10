@@ -17,6 +17,7 @@ export const sampleFamily: Person[] = [
     id: 'p2',
     firstName: 'Marguerite',
     lastName: 'Lemoine',
+    birthName: 'Dupont',
     sex: 'F',
     birthYear: 1931,
     deathYear: 2010,
