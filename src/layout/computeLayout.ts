@@ -33,57 +33,76 @@ function getCoParentPairs(people: Person[]): [string, string][] {
   return pairs;
 }
 
+/**
+ * Generation (row) for every person: 0 for someone with no known parents,
+ * otherwise one more than the deepest known parent. Partners and co-parents
+ * are additionally pulled onto the same generation as each other, since a
+ * couple has to sit on the same row for their connectors to line up.
+ *
+ * This has to be solved as a single fixed-point relaxation rather than
+ * "compute each person's generation from their parents, then equalize
+ * partners" as two separate passes: equalizing a person with a
+ * deep-lineage partner can push their generation up, and if that person
+ * has *another* child by a *different*, shallower co-parent, that
+ * co-parent (and thus the shared child) also needs to move — which a
+ * single equalize pass after the fact would miss, leaving a child's
+ * generation stale (sometimes shallower than its own parent).
+ */
 function computeGenerations(people: Person[]): Map<string, number> {
   const byId = new Map(people.map((p) => [p.id, p]));
-  const gen = new Map<string, number>();
-  const visiting = new Set<string>();
+  const gen = new Map<string, number>(people.map((p) => [p.id, 0]));
+  const coParentPairs = getCoParentPairs(people);
 
-  function resolve(id: string): number {
-    if (gen.has(id)) return gen.get(id)!;
-    if (visiting.has(id)) return 0; // guard against accidental cycles
-    visiting.add(id);
-    const person = byId.get(id);
-    const validParents = (person?.parentIds ?? []).filter((pid) => byId.has(pid) && pid !== id);
-    const g = validParents.length === 0 ? 0 : 1 + Math.max(...validParents.map(resolve));
-    visiting.delete(id);
-    gen.set(id, g);
-    return g;
-  }
-
-  for (const p of people) resolve(p.id);
-
-  function equalize(idA: string, idB: string): boolean {
-    const a = gen.get(idA) ?? 0;
-    const b = gen.get(idB) ?? 0;
-    if (a !== b) {
-      const max = Math.max(a, b);
-      gen.set(idA, max);
-      gen.set(idB, max);
+  const raise = (id: string, value: number): boolean => {
+    if ((gen.get(id) ?? 0) < value) {
+      gen.set(id, value);
       return true;
     }
     return false;
-  }
+  };
 
-  // Pull partners, and co-parents who share a child (even if no longer partners),
-  // onto the same generation — otherwise the parent-child connectors can't line up.
-  const coParentPairs = getCoParentPairs(people);
   let changed = true;
   let guard = 0;
-  while (changed && guard < people.length + 5) {
+  const maxGuard = people.length * 4 + 20;
+  while (changed && guard < maxGuard) {
     changed = false;
     guard++;
+
+    for (const p of people) {
+      const validParents = p.parentIds.filter((pid) => byId.has(pid) && pid !== p.id);
+      if (validParents.length === 0) continue;
+      const required = 1 + Math.max(...validParents.map((pid) => gen.get(pid) ?? 0));
+      if (raise(p.id, required)) changed = true;
+    }
+
     for (const p of people) {
       for (const partnerId of p.partnerIds) {
         if (!byId.has(partnerId)) continue;
-        if (equalize(p.id, partnerId)) changed = true;
+        const target = Math.max(gen.get(p.id) ?? 0, gen.get(partnerId) ?? 0);
+        if (raise(p.id, target) || raise(partnerId, target)) changed = true;
       }
     }
     for (const [a, b] of coParentPairs) {
-      if (equalize(a, b)) changed = true;
+      const target = Math.max(gen.get(a) ?? 0, gen.get(b) ?? 0);
+      if (raise(a, target) || raise(b, target)) changed = true;
     }
   }
 
   return gen;
+}
+
+/** parentId -> ids of their children who are in the dataset. */
+function getChildrenMap(people: Person[]): Map<string, string[]> {
+  const byId = new Map(people.map((p) => [p.id, p]));
+  const map = new Map<string, string[]>();
+  for (const p of people) {
+    for (const parentId of p.parentIds) {
+      if (!byId.has(parentId)) continue;
+      if (!map.has(parentId)) map.set(parentId, []);
+      map.get(parentId)!.push(p.id);
+    }
+  }
+  return map;
 }
 
 /** Every person paired with everyone they should be placed next to: partners and co-parents alike. */
@@ -157,49 +176,35 @@ function buildClusterOrder(ids: string[], linked: Map<string, Set<string>>, refe
   return [...left, hub, ...right, ...leftover];
 }
 
-export function computeLayout(people: Person[]): LayoutResult {
+/**
+ * Orders every generation's people left-to-right, trying to minimize how much
+ * parent-child connectors cross each other.
+ *
+ * Same-generation partners/co-parents are first grouped into clusters (see
+ * `buildClusterOrder`) that always stay together. Clusters are then ordered
+ * with the classic layered-graph-drawing "barycenter" heuristic: repeatedly
+ * sweep top-to-bottom (position each row by the average position of its
+ * members' parents) and bottom-to-top (position each row by the average
+ * position of its members' children), a few times over. A single top-down
+ * pass — the previous approach — only ever looks at the row directly above,
+ * so it can't resolve a layout that only becomes untangled by also
+ * considering a family's *children*; alternating sweeps let a row's position
+ * settle based on the whole tree, not just its immediate parents.
+ */
+function computeOrder(
+  people: Person[],
+  generations: Map<string, number>,
+  linkedIds: Map<string, Set<string>>,
+  maxGen: number,
+): Map<string, number> {
   const byId = new Map(people.map((p) => [p.id, p]));
-  const generations = computeGenerations(people);
-  const linkedIds = getLinkedIds(people);
-  const maxGen = people.length === 0 ? 0 : Math.max(...people.map((p) => generations.get(p.id) ?? 0));
+  const childrenMap = getChildrenMap(people);
+  const originalIndex = (id: string): number => people.findIndex((p) => p.id === id);
 
-  const slots = new Map<string, number>();
-  let previousLevelSlot = new Map<string, number>();
-
+  const clustersByGen: string[][][] = [];
   for (let g = 0; g <= maxGen; g++) {
     const levelPeople = people.filter((p) => generations.get(p.id) === g);
     const levelIds = new Set(levelPeople.map((p) => p.id));
-
-    // A person's position from their own parents' placement, when known — this is the
-    // reliable signal for where their whole partnership cluster belongs in the row.
-    const lineageKey = (id: string): number | null => {
-      const validParents = (byId.get(id)?.parentIds ?? []).filter((pid) => previousLevelSlot.has(pid));
-      if (validParents.length === 0) return null;
-      return validParents.reduce((sum, pid) => sum + previousLevelSlot.get(pid)!, 0) / validParents.length;
-    };
-
-    const sortKey = (id: string): number => {
-      if (g === 0) return people.findIndex((p) => p.id === id);
-      const known = lineageKey(id);
-      if (known !== null) return known;
-      return 1000 + people.findIndex((p) => p.id === id); // no known parent placed: push to the end, stable by original order
-    };
-
-    // A cluster's row position should follow whichever members actually descend from
-    // the row above (their lineageKey), not a plain average with partners who married
-    // in from outside the tree — those carry a large "push to the end" sentinel that
-    // would otherwise drag the whole cluster to the wrong spot in the row.
-    const clusterPositionKey = (members: string[]): number => {
-      const lineageKeys = members.map(lineageKey).filter((k): k is number => k !== null);
-      if (lineageKeys.length > 0) {
-        return lineageKeys.reduce((sum, k) => sum + k, 0) / lineageKeys.length;
-      }
-      return members.reduce((sum, id) => sum + sortKey(id), 0) / members.length;
-    };
-
-    // Group same-generation people into connected clusters of partners/co-parents,
-    // so someone with children by several partners lands with all of them instead
-    // of being scattered across the row with unrelated families in between.
     const visited = new Set<string>();
     const clusters: string[][] = [];
     for (const p of levelPeople) {
@@ -217,23 +222,75 @@ export function computeLayout(people: Person[]): LayoutResult {
           }
         }
       }
-      clusters.push(members);
+      clusters.push(members.length === 1 ? members : buildClusterOrder(members, linkedIds, originalIndex));
     }
-
-    const orderedClusters = clusters
-      .map((members) => (members.length === 1 ? members : buildClusterOrder(members, linkedIds, sortKey)))
-      .map((members) => ({ members, avgKey: clusterPositionKey(members) }))
-      .sort((a, b) => a.avgKey - b.avgKey);
-
-    const ordered: Person[] = orderedClusters.flatMap(({ members }) => members.map((id) => byId.get(id)!));
-
-    const currentLevelSlot = new Map<string, number>();
-    ordered.forEach((p, i) => {
-      slots.set(p.id, i);
-      currentLevelSlot.set(p.id, i);
-    });
-    previousLevelSlot = currentLevelSlot;
+    // Initial order: stable, deterministic, and a reasonable starting point for the sweeps.
+    clusters.sort((a, b) => originalIndex(a[0]) - originalIndex(b[0]));
+    clustersByGen.push(clusters);
   }
+
+  const positionOf = (g: number): Map<string, number> => {
+    const map = new Map<string, number>();
+    let idx = 0;
+    for (const cluster of clustersByGen[g]) {
+      for (const id of cluster) map.set(id, idx++);
+    }
+    return map;
+  };
+
+  const barycenter = (cluster: string[], neighborPos: Map<string, number>, neighborsOf: (id: string) => string[]): number | null => {
+    const positions: number[] = [];
+    for (const id of cluster) {
+      for (const neighborId of neighborsOf(id)) {
+        const pos = neighborPos.get(neighborId);
+        if (pos !== undefined) positions.push(pos);
+      }
+    }
+    if (positions.length === 0) return null;
+    return positions.reduce((sum, pos) => sum + pos, 0) / positions.length;
+  };
+
+  // Reorders generation `g` by the average position of each cluster's neighbors in
+  // generation `neighborGen`. A cluster with no such neighbors (e.g. it married in
+  // with no known parents, during a downward sweep) keeps its current relative spot,
+  // rescaled to the neighbor row's width, instead of being shoved to one side.
+  const reorder = (g: number, neighborGen: number, neighborsOf: (id: string) => string[]) => {
+    const neighborPos = positionOf(neighborGen);
+    const neighborSize = clustersByGen[neighborGen].length;
+    const size = clustersByGen[g].length;
+    const keyed = clustersByGen[g].map((cluster, i) => {
+      const key = barycenter(cluster, neighborPos, neighborsOf);
+      const fallback = size > 1 && neighborSize > 0 ? (i / (size - 1)) * Math.max(0, neighborSize - 1) : 0;
+      return { cluster, key: key ?? fallback };
+    });
+    keyed.sort((a, b) => a.key - b.key);
+    clustersByGen[g] = keyed.map((k) => k.cluster);
+  };
+
+  const parentsOf = (id: string): string[] => (byId.get(id)?.parentIds ?? []).filter((pid) => byId.has(pid));
+  const childrenOf = (id: string): string[] => childrenMap.get(id) ?? [];
+
+  const SWEEPS = 4;
+  for (let sweep = 0; sweep < SWEEPS; sweep++) {
+    for (let g = 1; g <= maxGen; g++) reorder(g, g - 1, parentsOf);
+    for (let g = maxGen - 1; g >= 0; g--) reorder(g, g + 1, childrenOf);
+  }
+
+  const slots = new Map<string, number>();
+  for (let g = 0; g <= maxGen; g++) {
+    let idx = 0;
+    for (const cluster of clustersByGen[g]) {
+      for (const id of cluster) slots.set(id, idx++);
+    }
+  }
+  return slots;
+}
+
+export function computeLayout(people: Person[]): LayoutResult {
+  const generations = computeGenerations(people);
+  const linkedIds = getLinkedIds(people);
+  const maxGen = people.length === 0 ? 0 : Math.max(...people.map((p) => generations.get(p.id) ?? 0));
+  const slots = computeOrder(people, generations, linkedIds, maxGen);
 
   const positioned: PositionedPerson[] = people.map((p) => ({
     ...p,
