@@ -1,9 +1,9 @@
 import type { Person, PositionedPerson } from '../types';
 
-export const COL_WIDTH = 200;
-export const ROW_HEIGHT = 170;
+export const COL_WIDTH = 250;
+export const ROW_HEIGHT = 210;
 export const NODE_WIDTH = 170;
-export const NODE_HEIGHT = 86;
+export const NODE_HEIGHT = 100;
 
 export interface FamilyGroup {
   key: string;

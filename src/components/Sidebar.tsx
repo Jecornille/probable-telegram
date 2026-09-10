@@ -31,7 +31,7 @@ export default function Sidebar({ people, selectedId, focusId, onSelect, onFocus
     const q = query.trim().toLowerCase();
     const sorted = [...people].sort((a, b) => `${a.firstName}${a.lastName}`.localeCompare(`${b.firstName}${b.lastName}`));
     if (!q) return sorted;
-    return sorted.filter((p) => `${p.firstName} ${p.lastName}`.toLowerCase().includes(q));
+    return sorted.filter((p) => `${p.firstName} ${p.lastName} ${p.birthName ?? ''}`.toLowerCase().includes(q));
   }, [people, query]);
 
   return (

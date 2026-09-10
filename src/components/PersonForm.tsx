@@ -13,6 +13,7 @@ interface Props {
 const emptyForm = {
   firstName: '',
   lastName: '',
+  birthName: '',
   sex: 'F' as Sex,
   birthYear: '',
   deathYear: '',
@@ -27,6 +28,7 @@ function formFromPerson(person: Person | null): typeof emptyForm {
   return {
     firstName: person.firstName,
     lastName: person.lastName,
+    birthName: person.birthName ?? '',
     sex: person.sex,
     birthYear: person.birthYear?.toString() ?? '',
     deathYear: person.deathYear?.toString() ?? '',
@@ -67,6 +69,7 @@ export default function PersonForm({ people, editingPerson, onSave, onDelete, on
     onSave(editingPerson?.id ?? null, {
       firstName: form.firstName.trim(),
       lastName: form.lastName.trim(),
+      birthName: form.birthName.trim() || undefined,
       sex: form.sex,
       birthYear: form.birthYear ? Number(form.birthYear) : undefined,
       deathYear: form.deathYear ? Number(form.deathYear) : undefined,
@@ -89,6 +92,15 @@ export default function PersonForm({ people, editingPerson, onSave, onDelete, on
       <label>
         Nom
         <input value={form.lastName} onChange={(e) => setForm({ ...form, lastName: e.target.value })} required />
+      </label>
+
+      <label>
+        Nom de naissance
+        <input
+          value={form.birthName}
+          onChange={(e) => setForm({ ...form, birthName: e.target.value })}
+          placeholder="si différent du nom actuel"
+        />
       </label>
 
       <label>
