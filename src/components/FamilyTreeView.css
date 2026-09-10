@@ -1,0 +1,116 @@
+.tree-viewport {
+  position: relative;
+  width: 100%;
+  height: 100%;
+  background:
+    radial-gradient(circle, var(--border) 1px, transparent 1px) 0 0 / 24px 24px,
+    var(--bg);
+}
+
+.tree-controls {
+  position: absolute;
+  top: 16px;
+  right: 16px;
+  z-index: 5;
+  display: flex;
+  flex-direction: column;
+  gap: 6px;
+}
+
+.tree-controls button {
+  width: 34px;
+  height: 34px;
+  border-radius: 8px;
+  border: 1px solid var(--border);
+  background: var(--panel-bg);
+  color: var(--text);
+  font-size: 1.1rem;
+  line-height: 1;
+}
+
+.tree-canvas {
+  width: 100%;
+  height: 100%;
+  overflow: hidden;
+  cursor: grab;
+}
+
+.tree-canvas.dragging {
+  cursor: grabbing;
+}
+
+.tree-empty {
+  display: flex;
+  align-items: center;
+  justify-content: center;
+  height: 100%;
+  color: var(--muted);
+  font-size: 1rem;
+  padding: 24px;
+  text-align: center;
+}
+
+.link-line,
+.partner-line {
+  stroke: var(--muted);
+  stroke-width: 2;
+  fill: none;
+}
+
+.partner-line {
+  stroke-dasharray: 4 3;
+}
+
+.tree-node {
+  cursor: pointer;
+}
+
+.node-box {
+  fill: var(--panel-bg);
+  stroke: var(--border);
+  stroke-width: 1.5;
+  transition: stroke 0.15s ease;
+}
+
+.tree-node.sex-M .node-box {
+  border-color: var(--male);
+}
+.tree-node.sex-F .node-box {
+  border-color: var(--female);
+}
+
+.tree-node.sex-M .node-box {
+  stroke: var(--male);
+}
+.tree-node.sex-F .node-box {
+  stroke: var(--female);
+}
+.tree-node.sex-X .node-box {
+  stroke: var(--other);
+}
+
+.tree-node.deceased .node-box {
+  fill: color-mix(in srgb, var(--muted) 10%, var(--panel-bg));
+}
+
+.tree-node.selected .node-box {
+  stroke-width: 3;
+  fill: color-mix(in srgb, var(--accent) 10%, var(--panel-bg));
+}
+
+.tree-node:hover .node-box {
+  stroke-width: 2.5;
+}
+
+.node-name {
+  fill: var(--text);
+  font-size: 15px;
+  font-weight: 600;
+  user-select: none;
+}
+
+.node-dates {
+  fill: var(--muted);
+  font-size: 12px;
+  user-select: none;
+}
