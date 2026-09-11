@@ -8,6 +8,7 @@ interface Props {
   onSave: (id: string | null, data: Omit<Person, 'id'>) => void;
   onDelete: (id: string) => void;
   onCancel: () => void;
+  onResetPosition?: (id: string) => void;
 }
 
 const emptyForm = {
@@ -41,7 +42,7 @@ function formFromPerson(person: Person | null): typeof emptyForm {
 
 // Note: parent renders this with a `key` tied to the edited person's id,
 // so a fresh instance (and fresh initial state) is created when the target changes.
-export default function PersonForm({ people, editingPerson, onSave, onDelete, onCancel }: Props) {
+export default function PersonForm({ people, editingPerson, onSave, onDelete, onCancel, onResetPosition }: Props) {
   const [form, setForm] = useState(() => formFromPerson(editingPerson));
 
   const selectableParents = people.filter((p) => p.id !== editingPerson?.id);
@@ -173,6 +174,15 @@ export default function PersonForm({ people, editingPerson, onSave, onDelete, on
         Notes
         <textarea value={form.notes} onChange={(e) => setForm({ ...form, notes: e.target.value })} rows={3} />
       </label>
+
+      {editingPerson && (editingPerson.offsetX || editingPerson.offsetY) ? (
+        <p className="hint">
+          Cette personne a été déplacée manuellement dans l'arbre.{' '}
+          <button type="button" className="link-button" onClick={() => onResetPosition?.(editingPerson.id)}>
+            Réinitialiser sa position
+          </button>
+        </p>
+      ) : null}
 
       <div className="form-actions">
         <button type="submit" className="primary">

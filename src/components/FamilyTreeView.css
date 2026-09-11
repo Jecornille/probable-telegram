@@ -97,7 +97,17 @@
 }
 
 .tree-node {
-  cursor: pointer;
+  cursor: grab;
+  touch-action: none;
+}
+
+.tree-node.dragging {
+  cursor: grabbing;
+}
+
+.tree-node.dragging .node-box {
+  stroke-width: 3;
+  filter: drop-shadow(0 4px 10px rgba(0, 0, 0, 0.2));
 }
 
 .node-box {

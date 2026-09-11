@@ -10,7 +10,7 @@ import './App.css';
 type PanelMode = { kind: 'closed' } | { kind: 'add' } | { kind: 'edit'; id: string };
 
 function App() {
-  const { people, addPerson, updatePerson, deletePerson, resetToSample, clearAll, importPeople } = useFamilyData();
+  const { people, addPerson, updatePerson, movePerson, deletePerson, resetToSample, clearAll, importPeople } = useFamilyData();
   const [selectedId, setSelectedId] = useState<string | null>(null);
   const [panel, setPanel] = useState<PanelMode>({ kind: 'closed' });
   const [focusId, setFocusId] = useState<string | null>(null);
@@ -100,6 +100,7 @@ function App() {
           focusedPersonName={focusedPerson ? `${focusedPerson.firstName} ${focusedPerson.lastName}` : null}
           focusedCount={visiblePeople.length}
           onClearFocus={() => setFocusId(null)}
+          onMovePerson={movePerson}
         />
       </main>
 
@@ -113,6 +114,7 @@ function App() {
               onSave={handleSave}
               onDelete={handleDelete}
               onCancel={() => setPanel({ kind: 'closed' })}
+              onResetPosition={(id) => movePerson(id, 0, 0)}
             />
           </div>
         </div>
