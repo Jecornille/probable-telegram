@@ -36,6 +36,26 @@ function getCoParentPairs(people: Person[]): [string, string][] {
   return pairs;
 }
 
+/** Every person paired with everyone they should be placed next to: partners and co-parents alike. */
+function getLinkedIds(people: Person[]): Map<string, Set<string>> {
+  const linked = new Map<string, Set<string>>();
+  const link = (a: string, b: string) => {
+    if (!linked.has(a)) linked.set(a, new Set());
+    linked.get(a)!.add(b);
+  };
+  for (const p of people) {
+    for (const partnerId of p.partnerIds) {
+      link(p.id, partnerId);
+      link(partnerId, p.id);
+    }
+  }
+  for (const [a, b] of getCoParentPairs(people)) {
+    link(a, b);
+    link(b, a);
+  }
+  return linked;
+}
+
 /**
  * Generation (row) for every person: 0 for someone with no known parents,
  * otherwise one more than the deepest known parent. Partners and co-parents
@@ -50,8 +70,19 @@ function getCoParentPairs(people: Person[]): [string, string][] {
  * co-parent (and thus the shared child) also needs to move — which a
  * single equalize pass after the fact would miss, leaving a child's
  * generation stale (sometimes shallower than its own parent).
+ *
+ * A person with no recorded parents, no partner/co-parent link, and no
+ * children of their own has nothing to anchor their row to, so they'd
+ * otherwise always land on row 0 — even someone clearly born decades after
+ * the tree's actual earliest generation. As a last-resort tie-breaker for
+ * exactly those fully-isolated people, their birth year is compared against
+ * the average birth year of each already-anchored row, and they're placed
+ * on whichever row fits best. This never overrides an actual relationship:
+ * anyone with a parent, partner, co-parent, or child link keeps the row
+ * that comes from that (a childless root ancestor stays on row 0 on
+ * purpose — that's a real, correct position, not a fallback).
  */
-function computeGenerations(people: Person[]): Map<string, number> {
+function computeGenerations(people: Person[], linkedIds: Map<string, Set<string>>): Map<string, number> {
   const byId = new Map(people.map((p) => [p.id, p]));
   const gen = new Map<string, number>(people.map((p) => [p.id, 0]));
   const coParentPairs = getCoParentPairs(people);
@@ -91,6 +122,37 @@ function computeGenerations(people: Person[]): Map<string, number> {
     }
   }
 
+  const parentIdsInUse = new Set(people.flatMap((p) => p.parentIds));
+  const isIsolated = (p: Person) =>
+    p.parentIds.length === 0 && (linkedIds.get(p.id)?.size ?? 0) === 0 && !parentIdsInUse.has(p.id);
+
+  const birthYearSumByGen = new Map<number, { sum: number; count: number }>();
+  for (const p of people) {
+    if (isIsolated(p) || p.birthYear === undefined) continue;
+    const g = gen.get(p.id) ?? 0;
+    const entry = birthYearSumByGen.get(g) ?? { sum: 0, count: 0 };
+    entry.sum += p.birthYear;
+    entry.count += 1;
+    birthYearSumByGen.set(g, entry);
+  }
+  const avgBirthYearByGen = [...birthYearSumByGen.entries()].map(([g, { sum, count }]) => [g, sum / count] as const);
+
+  if (avgBirthYearByGen.length > 0) {
+    for (const p of people) {
+      if (!isIsolated(p) || p.birthYear === undefined) continue;
+      let bestGen = avgBirthYearByGen[0][0];
+      let bestDiff = Math.abs(avgBirthYearByGen[0][1] - p.birthYear);
+      for (const [g, avgYear] of avgBirthYearByGen) {
+        const diff = Math.abs(avgYear - p.birthYear);
+        if (diff < bestDiff) {
+          bestDiff = diff;
+          bestGen = g;
+        }
+      }
+      gen.set(p.id, bestGen);
+    }
+  }
+
   return gen;
 }
 
@@ -106,26 +168,6 @@ function getChildrenMap(people: Person[]): Map<string, string[]> {
     }
   }
   return map;
-}
-
-/** Every person paired with everyone they should be placed next to: partners and co-parents alike. */
-function getLinkedIds(people: Person[]): Map<string, Set<string>> {
-  const linked = new Map<string, Set<string>>();
-  const link = (a: string, b: string) => {
-    if (!linked.has(a)) linked.set(a, new Set());
-    linked.get(a)!.add(b);
-  };
-  for (const p of people) {
-    for (const partnerId of p.partnerIds) {
-      link(p.id, partnerId);
-      link(partnerId, p.id);
-    }
-  }
-  for (const [a, b] of getCoParentPairs(people)) {
-    link(a, b);
-    link(b, a);
-  }
-  return linked;
 }
 
 /**
@@ -189,19 +231,22 @@ function buildClusterOrder(ids: string[], linked: Map<string, Set<string>>, refe
  * sweep top-to-bottom (position each row by the average position of its
  * members' parents) and bottom-to-top (position each row by the average
  * position of its members' children), a few times over. A single top-down
- * pass — the previous approach — only ever looks at the row directly above,
- * so it can't resolve a layout that only becomes untangled by also
- * considering a family's *children*; alternating sweeps let a row's position
- * settle based on the whole tree, not just its immediate parents.
+ * pass only ever looks at the row directly above, so it can't resolve a
+ * layout that only becomes untangled by also considering a family's
+ * *children*; alternating sweeps let a row's position settle based on the
+ * whole tree, not just its immediate parents.
+ *
+ * This only determines left-to-right *order* — see `assignCoordinates` for
+ * turning that into actual, parent-aligned pixel positions.
  */
-function computeOrder(
+function computeClusterOrder(
   people: Person[],
   generations: Map<string, number>,
   linkedIds: Map<string, Set<string>>,
+  childrenMap: Map<string, string[]>,
   maxGen: number,
-): Map<string, number> {
+): string[][][] {
   const byId = new Map(people.map((p) => [p.id, p]));
-  const childrenMap = getChildrenMap(people);
   const originalIndex = (id: string): number => people.findIndex((p) => p.id === id);
 
   const clustersByGen: string[][][] = [];
@@ -279,27 +324,135 @@ function computeOrder(
     for (let g = maxGen - 1; g >= 0; g--) reorder(g, g + 1, childrenOf);
   }
 
-  const slots = new Map<string, number>();
-  for (let g = 0; g <= maxGen; g++) {
-    let idx = 0;
-    for (const cluster of clustersByGen[g]) {
-      for (const id of cluster) slots.set(id, idx++);
+  return clustersByGen;
+}
+
+/**
+ * Turns a left-to-right cluster order into actual pixel x positions, trying to
+ * center each cluster under (or over) the average position of its parents and
+ * children rather than just packing everyone into fixed grid columns —
+ * otherwise an only child never lines up under its parents, and a small
+ * family always hugs the left edge of the row instead of sitting under
+ * where its relatives actually are.
+ *
+ * Same idea as `computeClusterOrder`: alternating top-down/bottom-up sweeps,
+ * each one nudging every cluster toward the average position of its
+ * neighbors in the adjacent row. A cluster's own width (it may hold several
+ * people) is respected as a minimum gap from its neighbors on the same row,
+ * resolved with a left-to-right and a right-to-left pass averaged together
+ * so a clash on one side doesn't just push everything toward the other.
+ */
+function assignCoordinates(
+  clustersByGen: string[][][],
+  maxGen: number,
+  parentsOf: (id: string) => string[],
+  childrenOf: (id: string) => string[],
+): Map<string, number> {
+  const widths: number[][] = clustersByGen.map((clusters) => clusters.map((c) => c.length));
+
+  // Initial centers: simply packed left-to-right, matching cluster widths.
+  const centers: number[][] = clustersByGen.map((clusters, g) => {
+    const row: number[] = [];
+    let cursor = 0;
+    for (let i = 0; i < clusters.length; i++) {
+      row.push(cursor + widths[g][i] / 2);
+      cursor += widths[g][i];
     }
+    return row;
+  });
+
+  const personCenterOf = (g: number): Map<string, number> => {
+    const map = new Map<string, number>();
+    clustersByGen[g].forEach((cluster, i) => {
+      for (const id of cluster) map.set(id, centers[g][i]);
+    });
+    return map;
+  };
+
+  const desiredCenters = (g: number, neighborGen: number, neighborsOf: (id: string) => string[]): number[] => {
+    const neighborPos = personCenterOf(neighborGen);
+    return clustersByGen[g].map((cluster, i) => {
+      const positions: number[] = [];
+      for (const id of cluster) {
+        for (const neighborId of neighborsOf(id)) {
+          const pos = neighborPos.get(neighborId);
+          if (pos !== undefined) positions.push(pos);
+        }
+      }
+      return positions.length > 0 ? positions.reduce((sum, pos) => sum + pos, 0) / positions.length : centers[g][i];
+    });
+  };
+
+  // Resolves desired centers into ones that respect a minimum gap (half of each
+  // neighbor pair's combined width) between consecutive clusters, run once
+  // left-to-right and once right-to-left, then averaged.
+  const resolve = (g: number, desired: number[]): number[] => {
+    const w = widths[g];
+    const n = desired.length;
+    if (n === 0) return desired;
+
+    const leftToRight = [...desired];
+    for (let i = 1; i < n; i++) {
+      const minGap = (w[i - 1] + w[i]) / 2;
+      leftToRight[i] = Math.max(leftToRight[i], leftToRight[i - 1] + minGap);
+    }
+
+    const rightToLeft = [...desired];
+    for (let i = n - 2; i >= 0; i--) {
+      const minGap = (w[i] + w[i + 1]) / 2;
+      rightToLeft[i] = Math.min(rightToLeft[i], rightToLeft[i + 1] - minGap);
+    }
+
+    return desired.map((_, i) => (leftToRight[i] + rightToLeft[i]) / 2);
+  };
+
+  const SWEEPS = 6;
+  for (let sweep = 0; sweep < SWEEPS; sweep++) {
+    for (let g = 1; g <= maxGen; g++) centers[g] = resolve(g, desiredCenters(g, g - 1, parentsOf));
+    for (let g = maxGen - 1; g >= 0; g--) centers[g] = resolve(g, desiredCenters(g, g + 1, childrenOf));
   }
-  return slots;
+
+  let minLeftEdge = 0;
+  let any = false;
+  for (let g = 0; g <= maxGen; g++) {
+    clustersByGen[g].forEach((_, i) => {
+      const leftEdge = centers[g][i] - widths[g][i] / 2;
+      if (!any || leftEdge < minLeftEdge) {
+        minLeftEdge = leftEdge;
+        any = true;
+      }
+    });
+  }
+
+  const positions = new Map<string, number>();
+  for (let g = 0; g <= maxGen; g++) {
+    clustersByGen[g].forEach((cluster, i) => {
+      const leftEdge = centers[g][i] - widths[g][i] / 2 - minLeftEdge;
+      cluster.forEach((id, localIndex) => {
+        positions.set(id, (leftEdge + localIndex) * COL_WIDTH);
+      });
+    });
+  }
+  return positions;
 }
 
 export function computeLayout(people: Person[]): LayoutResult {
-  const generations = computeGenerations(people);
+  const byId = new Map(people.map((p) => [p.id, p]));
   const linkedIds = getLinkedIds(people);
+  const generations = computeGenerations(people, linkedIds);
   const maxGen = people.length === 0 ? 0 : Math.max(...people.map((p) => generations.get(p.id) ?? 0));
-  const slots = computeOrder(people, generations, linkedIds, maxGen);
+  const childrenMap = getChildrenMap(people);
+
+  const clustersByGen = computeClusterOrder(people, generations, linkedIds, childrenMap, maxGen);
+  const parentsOf = (id: string): string[] => (byId.get(id)?.parentIds ?? []).filter((pid) => byId.has(pid));
+  const childrenOf = (id: string): string[] => childrenMap.get(id) ?? [];
+  const xPositions = assignCoordinates(clustersByGen, maxGen, parentsOf, childrenOf);
 
   const positioned: PositionedPerson[] = people.map((p) => ({
     ...p,
     generation: generations.get(p.id) ?? 0,
-    slot: slots.get(p.id) ?? 0,
-    x: (slots.get(p.id) ?? 0) * COL_WIDTH,
+    slot: Math.round((xPositions.get(p.id) ?? 0) / COL_WIDTH),
+    x: xPositions.get(p.id) ?? 0,
     y: (generations.get(p.id) ?? 0) * ROW_HEIGHT,
   }));
 
