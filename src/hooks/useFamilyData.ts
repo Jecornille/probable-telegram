@@ -44,7 +44,8 @@ export function useFamilyData() {
   const updatePerson = useCallback((id: string, data: Omit<Person, 'id'>) => {
     setPeople((prev) => {
       const before = prev.find((p) => p.id === id);
-      let next = prev.map((p) => (p.id === id ? { ...data, id } : p));
+      // The edit form never touches a manually-dragged position, so carry it over.
+      let next = prev.map((p) => (p.id === id ? { ...data, id, offsetX: before?.offsetX, offsetY: before?.offsetY } : p));
 
       const beforePartners = new Set(before?.partnerIds ?? []);
       const afterPartners = new Set(data.partnerIds);
@@ -65,6 +66,10 @@ export function useFamilyData() {
     });
   }, []);
 
+  const movePerson = useCallback((id: string, offsetX: number, offsetY: number) => {
+    setPeople((prev) => prev.map((p) => (p.id === id ? { ...p, offsetX, offsetY } : p)));
+  }, []);
+
   const deletePerson = useCallback((id: string) => {
     setPeople((prev) =>
       prev
@@ -81,5 +86,5 @@ export function useFamilyData() {
   const clearAll = useCallback(() => setPeople([]), []);
   const importPeople = useCallback((data: Person[]) => setPeople(data), []);
 
-  return { people, addPerson, updatePerson, deletePerson, resetToSample, clearAll, importPeople };
+  return { people, addPerson, updatePerson, movePerson, deletePerson, resetToSample, clearAll, importPeople };
 }

@@ -15,6 +15,9 @@ export interface Person {
   parentIds: string[];
   /** Partner/spouse ids (mutual). */
   partnerIds: string[];
+  /** Manual nudge from the automatically computed position, in pixels — set by dragging the node. */
+  offsetX?: number;
+  offsetY?: number;
 }
 
 export interface PositionedPerson extends Person {

@@ -515,8 +515,8 @@ export function computeLayout(people: Person[]): LayoutResult {
     ...p,
     generation: generations.get(p.id) ?? 0,
     slot: Math.round((xPositions.get(p.id) ?? 0) / COL_WIDTH),
-    x: xPositions.get(p.id) ?? 0,
-    y: (generations.get(p.id) ?? 0) * ROW_HEIGHT,
+    x: (xPositions.get(p.id) ?? 0) + (p.offsetX ?? 0),
+    y: (generations.get(p.id) ?? 0) * ROW_HEIGHT + (p.offsetY ?? 0),
   }));
 
   const positionedById = new Map(positioned.map((p) => [p.id, p]));
