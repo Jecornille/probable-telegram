@@ -324,6 +324,69 @@ function computeClusterOrder(
     for (let g = maxGen - 1; g >= 0; g--) reorder(g, g + 1, childrenOf);
   }
 
+  // Barycenter sweeps are a good global heuristic but can still leave two
+  // adjacent clusters in the wrong relative order — a local optimum the
+  // averaging can't see past. This is the classic Sugiyama "transpose" pass:
+  // for every adjacent pair in every row, actually count how many connector
+  // crossings each of the two orderings produces against the rows directly
+  // above and below, and swap whenever that's strictly fewer. Repeated to a
+  // fixed point (bounded), this mops up residual crossings the sweeps missed
+  // — the effect that matters most on a smaller, focused view, where a
+  // single bad swap is a much larger fraction of the whole picture.
+  const crossingsBetween = (leftPositions: number[], rightPositions: number[]): number => {
+    let count = 0;
+    for (const a of leftPositions) {
+      for (const b of rightPositions) {
+        if (a > b) count++;
+      }
+    }
+    return count;
+  };
+
+  const positionsInRow = (cluster: string[], neighborPos: Map<string, number>, neighborsOf: (id: string) => string[]): number[] => {
+    const positions: number[] = [];
+    for (const id of cluster) {
+      for (const neighborId of neighborsOf(id)) {
+        const pos = neighborPos.get(neighborId);
+        if (pos !== undefined) positions.push(pos);
+      }
+    }
+    return positions;
+  };
+
+  const transposeOnce = (): boolean => {
+    let improved = false;
+    for (let g = 0; g <= maxGen; g++) {
+      const aboveNeighborPos = g > 0 ? positionOf(g - 1) : null;
+      const belowNeighborPos = g < maxGen ? positionOf(g + 1) : null;
+      const row = clustersByGen[g];
+      for (let i = 0; i < row.length - 1; i++) {
+        const left = row[i];
+        const right = row[i + 1];
+
+        const leftAbove = aboveNeighborPos ? positionsInRow(left, aboveNeighborPos, parentsOf) : [];
+        const rightAbove = aboveNeighborPos ? positionsInRow(right, aboveNeighborPos, parentsOf) : [];
+        const leftBelow = belowNeighborPos ? positionsInRow(left, belowNeighborPos, childrenOf) : [];
+        const rightBelow = belowNeighborPos ? positionsInRow(right, belowNeighborPos, childrenOf) : [];
+
+        const current = crossingsBetween(leftAbove, rightAbove) + crossingsBetween(leftBelow, rightBelow);
+        const swapped = crossingsBetween(rightAbove, leftAbove) + crossingsBetween(rightBelow, leftBelow);
+
+        if (swapped < current) {
+          row[i] = right;
+          row[i + 1] = left;
+          improved = true;
+        }
+      }
+    }
+    return improved;
+  };
+
+  const MAX_TRANSPOSE_PASSES = 8;
+  for (let pass = 0; pass < MAX_TRANSPOSE_PASSES; pass++) {
+    if (!transposeOnce()) break;
+  }
+
   return clustersByGen;
 }
 
