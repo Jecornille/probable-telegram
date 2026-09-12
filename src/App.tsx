@@ -4,6 +4,7 @@ import PersonForm from './components/PersonForm';
 import FamilyTreeView from './components/FamilyTreeView';
 import { useFamilyData } from './hooks/useFamilyData';
 import { computeFocusSubset } from './utils/focusSubset';
+import { parseGedcom } from './utils/gedcom';
 import type { Person } from './types';
 import './App.css';
 
@@ -77,6 +78,25 @@ function App() {
     reader.readAsText(file);
   };
 
+  const handleImportGedcom = (file: File) => {
+    const reader = new FileReader();
+    reader.onload = () => {
+      try {
+        const data = parseGedcom(String(reader.result));
+        if (data.length === 0) {
+          alert("Aucune personne n'a pu être lue dans ce fichier GEDCOM.");
+          return;
+        }
+        importPeople(data);
+        setPanel({ kind: 'closed' });
+        setSelectedId(null);
+      } catch {
+        alert("Le fichier GEDCOM n'a pas pu être lu.");
+      }
+    };
+    reader.readAsText(file);
+  };
+
   return (
     <div className="app-shell">
       <Sidebar
@@ -90,6 +110,7 @@ function App() {
         onClearAll={clearAll}
         onExport={handleExport}
         onImport={handleImport}
+        onImportGedcom={handleImportGedcom}
       />
 
       <main className="tree-area">

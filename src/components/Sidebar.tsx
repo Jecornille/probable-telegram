@@ -13,6 +13,7 @@ interface Props {
   onClearAll: () => void;
   onExport: () => void;
   onImport: (file: File) => void;
+  onImportGedcom: (file: File) => void;
 }
 
 function TargetIcon() {
@@ -24,7 +25,7 @@ function TargetIcon() {
   );
 }
 
-export default function Sidebar({ people, selectedId, focusId, onSelect, onFocus, onAddNew, onResetSample, onClearAll, onExport, onImport }: Props) {
+export default function Sidebar({ people, selectedId, focusId, onSelect, onFocus, onAddNew, onResetSample, onClearAll, onExport, onImport, onImportGedcom }: Props) {
   const [query, setQuery] = useState('');
 
   const filtered = useMemo(() => {
@@ -83,6 +84,20 @@ export default function Sidebar({ people, selectedId, focusId, onSelect, onFocus
               onChange={(e) => {
                 const file = e.target.files?.[0];
                 if (file) onImport(file);
+                e.target.value = '';
+              }}
+            />
+          </label>
+        </div>
+        <div className="footer-actions">
+          <label className="import-label" title="Importer un fichier GEDCOM (.ged)">
+            Importer GEDCOM
+            <input
+              type="file"
+              accept=".ged,text/plain"
+              onChange={(e) => {
+                const file = e.target.files?.[0];
+                if (file) onImportGedcom(file);
                 e.target.value = '';
               }}
             />
