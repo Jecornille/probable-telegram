@@ -511,13 +511,23 @@ export function computeLayout(people: Person[]): LayoutResult {
   const childrenOf = (id: string): string[] => childrenMap.get(id) ?? [];
   const xPositions = assignCoordinates(clustersByGen, maxGen, parentsOf, childrenOf);
 
-  const positioned: PositionedPerson[] = people.map((p) => ({
+  const rawPositioned = people.map((p) => ({
     ...p,
     generation: generations.get(p.id) ?? 0,
     slot: Math.round((xPositions.get(p.id) ?? 0) / COL_WIDTH),
     x: (xPositions.get(p.id) ?? 0) + (p.offsetX ?? 0),
     y: (generations.get(p.id) ?? 0) * ROW_HEIGHT + (p.offsetY ?? 0),
   }));
+
+  // A manual drag can push someone's x/y below 0 (the auto-layout itself never
+  // does). The SVG canvas starts at (0, 0) and clips anything before that, so
+  // re-anchor the whole diagram — shifting every person together, not just the
+  // dragged one — to keep the leftmost/topmost position at 0 and everyone on
+  // screen, the same way scrolling a document doesn't change where things sit
+  // relative to each other.
+  const minX = rawPositioned.length === 0 ? 0 : Math.min(0, ...rawPositioned.map((p) => p.x));
+  const minY = rawPositioned.length === 0 ? 0 : Math.min(0, ...rawPositioned.map((p) => p.y));
+  const positioned: PositionedPerson[] = rawPositioned.map((p) => ({ ...p, x: p.x - minX, y: p.y - minY }));
 
   const positionedById = new Map(positioned.map((p) => [p.id, p]));
 
