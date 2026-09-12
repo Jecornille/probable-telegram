@@ -1,4 +1,4 @@
-import { useMemo, useState } from 'react';
+import { lazy, Suspense, useMemo, useState } from 'react';
 import Sidebar from './components/Sidebar';
 import PersonForm from './components/PersonForm';
 import FamilyTreeView from './components/FamilyTreeView';
@@ -8,13 +8,17 @@ import { parseGedcom, serializeGedcom } from './utils/gedcom';
 import type { Person } from './types';
 import './App.css';
 
+const FamilyTreeView3D = lazy(() => import('./components/FamilyTreeView3D'));
+
 type PanelMode = { kind: 'closed' } | { kind: 'add' } | { kind: 'edit'; id: string };
+type ViewMode = '2d' | '3d';
 
 function App() {
   const { people, addPerson, updatePerson, movePerson, deletePerson, resetToSample, clearAll, importPeople } = useFamilyData();
   const [selectedId, setSelectedId] = useState<string | null>(null);
   const [panel, setPanel] = useState<PanelMode>({ kind: 'closed' });
   const [focusId, setFocusId] = useState<string | null>(null);
+  const [viewMode, setViewMode] = useState<ViewMode>('2d');
 
   const editingPerson: Person | null = useMemo(() => {
     if (panel.kind !== 'edit') return null;
@@ -125,15 +129,36 @@ function App() {
       />
 
       <main className="tree-area">
-        <FamilyTreeView
-          people={visiblePeople}
-          selectedId={selectedId}
-          onSelect={handleSelect}
-          focusedPersonName={focusedPerson ? `${focusedPerson.firstName} ${focusedPerson.lastName}` : null}
-          focusedCount={visiblePeople.length}
-          onClearFocus={() => setFocusId(null)}
-          onMovePerson={movePerson}
-        />
+        <div className="view-toggle">
+          <button className={viewMode === '2d' ? 'active' : ''} onClick={() => setViewMode('2d')}>
+            Vue 2D
+          </button>
+          <button className={viewMode === '3d' ? 'active' : ''} onClick={() => setViewMode('3d')}>
+            Vue 3D
+          </button>
+        </div>
+        {viewMode === '2d' ? (
+          <FamilyTreeView
+            people={visiblePeople}
+            selectedId={selectedId}
+            onSelect={handleSelect}
+            focusedPersonName={focusedPerson ? `${focusedPerson.firstName} ${focusedPerson.lastName}` : null}
+            focusedCount={visiblePeople.length}
+            onClearFocus={() => setFocusId(null)}
+            onMovePerson={movePerson}
+          />
+        ) : (
+          <Suspense fallback={<div className="tree-3d-loading">Chargement de la vue 3D…</div>}>
+            <FamilyTreeView3D
+              people={visiblePeople}
+              selectedId={selectedId}
+              onSelect={handleSelect}
+              focusedPersonName={focusedPerson ? `${focusedPerson.firstName} ${focusedPerson.lastName}` : null}
+              focusedCount={visiblePeople.length}
+              onClearFocus={() => setFocusId(null)}
+            />
+          </Suspense>
+        )}
       </main>
 
       {panel.kind !== 'closed' && (

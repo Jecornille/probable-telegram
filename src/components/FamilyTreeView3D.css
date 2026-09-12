@@ -1,0 +1,49 @@
+.tree-viewport-3d {
+  position: relative;
+  width: 100%;
+  height: 100%;
+  background: var(--bg);
+}
+
+.tree-canvas-3d {
+  width: 100%;
+  height: 100%;
+}
+
+.tree-canvas-3d canvas {
+  display: block;
+}
+
+.node-label-3d {
+  text-align: center;
+  white-space: nowrap;
+  font-family: inherit;
+  user-select: none;
+}
+
+.node-label-3d .name {
+  font-size: 13px;
+  font-weight: 600;
+}
+
+.node-label-3d .birthname {
+  font-size: 10px;
+  font-style: italic;
+}
+
+.node-label-3d .dates {
+  font-size: 10px;
+}
+
+.tree-hint-3d {
+  position: absolute;
+  bottom: 16px;
+  left: 16px;
+  z-index: 5;
+  padding: 6px 10px;
+  border-radius: 8px;
+  border: 1px solid var(--border);
+  background: var(--panel-bg);
+  color: var(--muted);
+  font-size: 0.78rem;
+}
