@@ -4,7 +4,7 @@ import PersonForm from './components/PersonForm';
 import FamilyTreeView from './components/FamilyTreeView';
 import { useFamilyData } from './hooks/useFamilyData';
 import { computeFocusSubset } from './utils/focusSubset';
-import { parseGedcom } from './utils/gedcom';
+import { parseGedcom, serializeGedcom } from './utils/gedcom';
 import type { Person } from './types';
 import './App.css';
 
@@ -78,6 +78,16 @@ function App() {
     reader.readAsText(file);
   };
 
+  const handleExportGedcom = () => {
+    const blob = new Blob([serializeGedcom(people)], { type: 'text/plain' });
+    const url = URL.createObjectURL(blob);
+    const a = document.createElement('a');
+    a.href = url;
+    a.download = 'arbre-genealogique.ged';
+    a.click();
+    URL.revokeObjectURL(url);
+  };
+
   const handleImportGedcom = (file: File) => {
     const reader = new FileReader();
     reader.onload = () => {
@@ -110,6 +120,7 @@ function App() {
         onClearAll={clearAll}
         onExport={handleExport}
         onImport={handleImport}
+        onExportGedcom={handleExportGedcom}
         onImportGedcom={handleImportGedcom}
       />
 

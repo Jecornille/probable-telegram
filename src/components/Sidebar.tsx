@@ -13,6 +13,7 @@ interface Props {
   onClearAll: () => void;
   onExport: () => void;
   onImport: (file: File) => void;
+  onExportGedcom: () => void;
   onImportGedcom: (file: File) => void;
 }
 
@@ -25,7 +26,7 @@ function TargetIcon() {
   );
 }
 
-export default function Sidebar({ people, selectedId, focusId, onSelect, onFocus, onAddNew, onResetSample, onClearAll, onExport, onImport, onImportGedcom }: Props) {
+export default function Sidebar({ people, selectedId, focusId, onSelect, onFocus, onAddNew, onResetSample, onClearAll, onExport, onImport, onExportGedcom, onImportGedcom }: Props) {
   const [query, setQuery] = useState('');
 
   const filtered = useMemo(() => {
@@ -90,6 +91,7 @@ export default function Sidebar({ people, selectedId, focusId, onSelect, onFocus
           </label>
         </div>
         <div className="footer-actions">
+          <button onClick={onExportGedcom} title="Exporter en GEDCOM">Exporter GEDCOM</button>
           <label className="import-label" title="Importer un fichier GEDCOM (.ged)">
             Importer GEDCOM
             <input
