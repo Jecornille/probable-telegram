@@ -1,7 +1,10 @@
 import { Suspense, useEffect, useMemo, useRef, useState } from 'react';
-import { Canvas } from '@react-three/fiber';
+import type { RefObject } from 'react';
+import { Canvas, useThree } from '@react-three/fiber';
+import type { ThreeEvent } from '@react-three/fiber';
 import { Html, Line, OrbitControls, RoundedBox } from '@react-three/drei';
 import type { OrbitControls as OrbitControlsImpl } from 'three-stdlib';
+import * as THREE from 'three';
 import { computeLayout, NODE_HEIGHT, NODE_WIDTH } from '../layout/computeLayout';
 import type { Person, PositionedPerson } from '../types';
 import './FamilyTreeView3D.css';
@@ -13,7 +16,10 @@ interface Props {
   focusedPersonName?: string | null;
   focusedCount?: number;
   onClearFocus?: () => void;
+  onMovePerson?: (id: string, offsetX: number, offsetY: number) => void;
 }
+
+const DRAG_THRESHOLD_PX = 4;
 
 // World-unit scale applied to the same pixel coordinates the 2D view uses, so
 // left-right sibling order matches exactly between both views.
@@ -76,6 +82,14 @@ function place(p: PositionedPerson): Placed {
   return { p, cx, topY, bottomY, z };
 }
 
+// Renders a person's base position nudged by a live drag delta (in the same
+// pixel units as offsetX/offsetY), so the card and everything touching it
+// stay visually attached to the cursor while dragging — same idea as the 2D
+// view's renderPos, just producing a 3D Placed instead of a 2D point.
+function placeWithDelta(p: PositionedPerson, dxPixels: number, dyPixels: number): Placed {
+  return place({ ...p, x: p.x + dxPixels, y: p.y + dyPixels });
+}
+
 interface Bounds {
   minX: number;
   maxX: number;
@@ -97,7 +111,19 @@ function computeBounds(placed: Placed[]): Bounds {
   };
 }
 
-function PersonCard({ placed, selected, palette, onSelect }: { placed: Placed; selected: boolean; palette: Palette; onSelect: (id: string) => void }) {
+function PersonCard({
+  placed,
+  selected,
+  dragging,
+  palette,
+  onDragStart,
+}: {
+  placed: Placed;
+  selected: boolean;
+  dragging: boolean;
+  palette: Palette;
+  onDragStart: (e: ThreeEvent<PointerEvent>, placed: Placed) => void;
+}) {
   const { p, cx, topY, bottomY, z } = placed;
   const centerY = (topY + bottomY) / 2;
   const rimColor = p.sex === 'M' ? palette.male : p.sex === 'F' ? palette.female : palette.other;
@@ -110,9 +136,9 @@ function PersonCard({ placed, selected, palette, onSelect }: { placed: Placed; s
         args={[CARD_W, CARD_H, CARD_D]}
         radius={0.05}
         smoothness={2}
-        onClick={(e) => {
+        onPointerDown={(e) => {
           e.stopPropagation();
-          onSelect(p.id);
+          onDragStart(e, placed);
         }}
         onPointerOver={(e) => {
           e.stopPropagation();
@@ -124,7 +150,15 @@ function PersonCard({ placed, selected, palette, onSelect }: { placed: Placed; s
           document.body.style.cursor = 'auto';
         }}
       >
-        <meshStandardMaterial color={panelColor} emissive={rimColor} emissiveIntensity={hovered || selected ? 0.4 : 0.18} roughness={0.6} metalness={0.05} opacity={p.deathYear ? 0.75 : 1} transparent={!!p.deathYear} />
+        <meshStandardMaterial
+          color={panelColor}
+          emissive={rimColor}
+          emissiveIntensity={hovered || selected || dragging ? 0.4 : 0.18}
+          roughness={0.6}
+          metalness={0.05}
+          opacity={p.deathYear ? 0.75 : 1}
+          transparent={!!p.deathYear}
+        />
       </RoundedBox>
       <Html position={[0, 0, CARD_D / 2 + 0.02]} center distanceFactor={7} style={{ pointerEvents: 'none' }} occlude={false}>
         <div className="node-label-3d" style={{ color: palette.text }}>
@@ -145,24 +179,127 @@ function PersonCard({ placed, selected, palette, onSelect }: { placed: Placed; s
   );
 }
 
+interface DragState {
+  id: string;
+  pointerId: number;
+  startClientX: number;
+  startClientY: number;
+  startOffsetX: number;
+  startOffsetY: number;
+  planeZ: number;
+}
+
 function Scene({
   layout,
   selectedId,
   onSelect,
+  onMovePerson,
   palette,
   bounds,
+  controlsRef,
 }: {
   layout: ReturnType<typeof computeLayout>;
   selectedId: string | null;
   onSelect: (id: string) => void;
+  onMovePerson?: (id: string, offsetX: number, offsetY: number) => void;
   palette: Palette;
   bounds: Bounds;
+  controlsRef: RefObject<OrbitControlsImpl | null>;
 }) {
+  const { camera, gl } = useThree();
+  const [dragState, setDragState] = useState<DragState | null>(null);
+  const [dragDelta, setDragDelta] = useState<{ id: string; dxPixels: number; dyPixels: number } | null>(null);
+  const dragDeltaRef = useRef<{ dxPixels: number; dyPixels: number } | null>(null);
+  const movedRef = useRef(false);
+
+  // A person's own card is far too small a target to keep the cursor over
+  // while dragging fast, so movement is tracked with window-level listeners
+  // (like the 2D view's pointer capture) and converted back to world space
+  // by raycasting onto an invisible plane fixed at the dragged card's depth —
+  // that plane is what keeps the drag confined to the card's own generation
+  // "floor" (only x/y move, exactly like the 2D view's offsetX/offsetY)
+  // instead of sliding freely in and out of the screen.
+  useEffect(() => {
+    if (!dragState) return;
+    const canvas = gl.domElement;
+    const raycaster = new THREE.Raycaster();
+    const plane = new THREE.Plane(new THREE.Vector3(0, 0, 1), -dragState.planeZ);
+    const ndc = new THREE.Vector2();
+    const hit = new THREE.Vector3();
+
+    const raycastToPlane = (clientX: number, clientY: number): THREE.Vector3 | null => {
+      const rect = canvas.getBoundingClientRect();
+      ndc.x = ((clientX - rect.left) / rect.width) * 2 - 1;
+      ndc.y = -((clientY - rect.top) / rect.height) * 2 + 1;
+      raycaster.setFromCamera(ndc, camera);
+      return raycaster.ray.intersectPlane(plane, hit) ? hit.clone() : null;
+    };
+
+    const startPoint = raycastToPlane(dragState.startClientX, dragState.startClientY);
+
+    const handleMove = (ev: PointerEvent) => {
+      if (ev.pointerId !== dragState.pointerId || !startPoint) return;
+      const screenDx = ev.clientX - dragState.startClientX;
+      const screenDy = ev.clientY - dragState.startClientY;
+      if (!movedRef.current) {
+        if (Math.hypot(screenDx, screenDy) < DRAG_THRESHOLD_PX) return;
+        movedRef.current = true;
+      }
+      const current = raycastToPlane(ev.clientX, ev.clientY);
+      if (!current) return;
+      const delta = { dxPixels: (current.x - startPoint.x) / SCALE, dyPixels: -(current.y - startPoint.y) / SCALE };
+      dragDeltaRef.current = delta;
+      setDragDelta({ id: dragState.id, ...delta });
+    };
+
+    const handleUp = (ev: PointerEvent) => {
+      if (ev.pointerId !== dragState.pointerId) return;
+      window.removeEventListener('pointermove', handleMove);
+      window.removeEventListener('pointerup', handleUp);
+      if (controlsRef.current) controlsRef.current.enabled = true;
+
+      if (movedRef.current) {
+        const delta = dragDeltaRef.current ?? { dxPixels: 0, dyPixels: 0 };
+        onMovePerson?.(dragState.id, dragState.startOffsetX + delta.dxPixels, dragState.startOffsetY + delta.dyPixels);
+      } else {
+        onSelect(dragState.id);
+      }
+      movedRef.current = false;
+      dragDeltaRef.current = null;
+      setDragDelta(null);
+      setDragState(null);
+    };
+
+    window.addEventListener('pointermove', handleMove);
+    window.addEventListener('pointerup', handleUp);
+    return () => {
+      window.removeEventListener('pointermove', handleMove);
+      window.removeEventListener('pointerup', handleUp);
+    };
+    // eslint-disable-next-line react-hooks/exhaustive-deps
+  }, [dragState, camera, gl]);
+
+  const handleDragStart = (e: ThreeEvent<PointerEvent>, placed: Placed) => {
+    if (controlsRef.current) controlsRef.current.enabled = false;
+    movedRef.current = false;
+    setDragState({
+      id: placed.p.id,
+      pointerId: e.nativeEvent.pointerId,
+      startClientX: e.nativeEvent.clientX,
+      startClientY: e.nativeEvent.clientY,
+      startOffsetX: placed.p.offsetX ?? 0,
+      startOffsetY: placed.p.offsetY ?? 0,
+      planeZ: placed.z,
+    });
+  };
+
   const placedById = useMemo(() => {
     const m = new Map<string, Placed>();
-    for (const p of layout.people) m.set(p.id, place(p));
+    for (const p of layout.people) {
+      m.set(p.id, dragDelta && dragDelta.id === p.id ? placeWithDelta(p, dragDelta.dxPixels, dragDelta.dyPixels) : place(p));
+    }
     return m;
-  }, [layout]);
+  }, [layout, dragDelta]);
 
   const floorY = bounds.minY - 0.4;
   const floorSize = Math.max(bounds.maxX - bounds.minX, bounds.maxZ - bounds.minZ) + 6;
@@ -251,13 +388,20 @@ function Scene({
       })}
 
       {[...placedById.values()].map((placed) => (
-        <PersonCard key={placed.p.id} placed={placed} selected={placed.p.id === selectedId} palette={palette} onSelect={onSelect} />
+        <PersonCard
+          key={placed.p.id}
+          placed={placed}
+          selected={placed.p.id === selectedId}
+          dragging={dragState?.id === placed.p.id}
+          palette={palette}
+          onDragStart={handleDragStart}
+        />
       ))}
     </>
   );
 }
 
-export default function FamilyTreeView3D({ people, selectedId, onSelect, focusedPersonName, focusedCount, onClearFocus }: Props) {
+export default function FamilyTreeView3D({ people, selectedId, onSelect, focusedPersonName, focusedCount, onClearFocus, onMovePerson }: Props) {
   const layout = useMemo(() => computeLayout(people), [people]);
   const palette = usePalette();
   const controlsRef = useRef<OrbitControlsImpl | null>(null);
@@ -302,13 +446,13 @@ export default function FamilyTreeView3D({ people, selectedId, onSelect, focused
         ) : (
           <Canvas key={people.length} camera={{ position: camPos, fov: 45, near: 0.1, far: 500 }} dpr={[1, 2]}>
             <Suspense fallback={null}>
-              <Scene layout={layout} selectedId={selectedId} onSelect={onSelect} palette={palette} bounds={bounds} />
+              <Scene layout={layout} selectedId={selectedId} onSelect={onSelect} onMovePerson={onMovePerson} palette={palette} bounds={bounds} controlsRef={controlsRef} />
             </Suspense>
             <OrbitControls ref={controlsRef} target={center} enableDamping dampingFactor={0.08} minDistance={1} maxDistance={size * 5} makeDefault />
           </Canvas>
         )}
       </div>
-      {people.length > 0 && <div className="tree-hint-3d">Glisser pour tourner · molette pour zoomer · clic droit pour déplacer</div>}
+      {people.length > 0 && <div className="tree-hint-3d">Glisser le fond pour tourner · molette pour zoomer · glisser une personne pour la déplacer</div>}
     </div>
   );
 }

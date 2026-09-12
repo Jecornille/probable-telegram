@@ -156,6 +156,7 @@ function App() {
               focusedPersonName={focusedPerson ? `${focusedPerson.firstName} ${focusedPerson.lastName}` : null}
               focusedCount={visiblePeople.length}
               onClearFocus={() => setFocusId(null)}
+              onMovePerson={movePerson}
             />
           </Suspense>
         )}
