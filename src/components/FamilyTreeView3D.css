@@ -22,17 +22,17 @@
 }
 
 .node-label-3d .name {
-  font-size: 13px;
+  font-size: 16px;
   font-weight: 600;
 }
 
 .node-label-3d .birthname {
-  font-size: 10px;
+  font-size: 12px;
   font-style: italic;
 }
 
 .node-label-3d .dates {
-  font-size: 10px;
+  font-size: 12px;
 }
 
 .tree-hint-3d {
