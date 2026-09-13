@@ -160,7 +160,7 @@ function PersonCard({
           transparent={!!p.deathYear}
         />
       </RoundedBox>
-      <Html position={[0, 0, CARD_D / 2 + 0.02]} center distanceFactor={7} style={{ pointerEvents: 'none' }} occlude={false}>
+      <Html position={[0, 0, CARD_D / 2 + 0.02]} center distanceFactor={11} style={{ pointerEvents: 'none' }} occlude={false}>
         <div className="node-label-3d" style={{ color: palette.text }}>
           <div className="name">
             {p.firstName} {p.lastName}
