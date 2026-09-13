@@ -160,7 +160,10 @@ function PersonCard({
           transparent={!!p.deathYear}
         />
       </RoundedBox>
-      <Html position={[0, 0, CARD_D / 2 + 0.02]} center distanceFactor={11} style={{ pointerEvents: 'none' }} occlude={false}>
+      {/* No distanceFactor: that scales the label with camera distance like a real
+          3D object, so it shrinks into illegibility when zooming out or orbiting
+          away — a fixed screen-space size keeps it readable at any zoom/angle. */}
+      <Html position={[0, 0, CARD_D / 2 + 0.02]} center style={{ pointerEvents: 'none' }} occlude={false}>
         <div className="node-label-3d" style={{ color: palette.text }}>
           <div className="name">
             {p.firstName} {p.lastName}
